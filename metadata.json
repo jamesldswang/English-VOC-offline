@@ -1,0 +1,6 @@
+{
+  "name": "English VOC 智慧英文單字語音互動特訓看板",
+  "description": "智慧英文單字語音互動特訓看板，具備雲端教材市集、TTS 語音發音、3D 單字翻轉卡片、即時盲打拼字校驗、歷史弱點特訓大數據分析與歷程匯入匯出功能。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
