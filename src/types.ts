@@ -23,6 +23,7 @@ export interface QuizRecord {
   name: string;
   time: string;
   tested: number;
+  total?: number;
   correct: number;
   wrong: number;
   rate: string;

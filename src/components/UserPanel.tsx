@@ -15,7 +15,7 @@ interface UserPanelProps {
   historyUsers: string[];
   onUsernameChange: (name: string) => void;
   onLogin: () => void;
-  onSaveResult: () => void;
+  onSelectHistoryUser: (name: string) => void;
   onOpenHistory: () => void;
   onExportHistory: () => void;
   onImportHistory: (file: File) => void;
@@ -28,7 +28,7 @@ export const UserPanel: React.FC<UserPanelProps> = ({
   historyUsers,
   onUsernameChange,
   onLogin,
-  onSaveResult,
+  onSelectHistoryUser,
   onOpenHistory,
   onExportHistory,
   onImportHistory,
@@ -80,10 +80,11 @@ export const UserPanel: React.FC<UserPanelProps> = ({
             value=""
             onChange={(e) => {
               if (e.target.value) {
-                onUsernameChange(e.target.value);
+                onSelectHistoryUser(e.target.value);
               }
             }}
             tabIndex={-1}
+            title="選擇歷史受測者將自動立即登入"
             className="px-2.5 py-1.5 text-sm border border-slate-300 rounded-lg bg-slate-50 text-slate-700 font-medium outline-none hover:bg-slate-100 cursor-pointer"
           >
             <option value="" disabled>
@@ -100,31 +101,27 @@ export const UserPanel: React.FC<UserPanelProps> = ({
         <button
           onClick={onLogin}
           tabIndex={-1}
-          className="px-3.5 py-1.5 text-sm font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition shadow-xs cursor-pointer flex items-center gap-1"
+          title={isLoggedIn ? '目前已確認登入此受測者' : '新受測者請點擊此處確認登入 (或按 Enter)'}
+          className={`px-3.5 py-1.5 text-sm font-semibold rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1 ${
+            isLoggedIn
+              ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/30'
+              : 'bg-blue-600 hover:bg-blue-700 text-white'
+          }`}
         >
-          {isLoggedIn ? '已確認登入' : '確認登入'}
+          {isLoggedIn ? '✓ 已確認登入' : '確認登入'}
         </button>
       </div>
 
       {/* Actions Section */}
       <div className="flex flex-wrap items-center gap-2">
         <button
-          onClick={onSaveResult}
-          tabIndex={-1}
-          title="儲存本次測驗統計數據 (Ctrl+S)"
-          className="px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
-        >
-          <Save className="w-3.5 h-3.5" />
-          <span>儲存本次成果 (Ctrl+S)</span>
-        </button>
-
-        <button
           onClick={onOpenHistory}
           tabIndex={-1}
-          className="px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-slate-600 hover:bg-slate-700 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+          title="自動存查本次作答成果並開啟學習歷程看板 (Ctrl+S)"
+          className="px-3.5 py-1.5 text-xs sm:text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
         >
-          <BarChart3 className="w-3.5 h-3.5" />
-          <span>📊 存查歷史紀錄</span>
+          <BarChart3 className="w-4 h-4" />
+          <span>📊 存查歷史紀錄 (Ctrl+S)</span>
         </button>
 
         <button

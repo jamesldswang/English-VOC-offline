@@ -34,9 +34,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenKeyboardShortcuts }) => {
         </div>
       )}
 
-      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold uppercase tracking-wider mb-2">
+      <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold uppercase tracking-wider mb-2 shadow-xs">
         <Sparkles className="w-3.5 h-3.5" />
-        V8.18 智慧語音盲打看板 • 通用字卡平台
+        V8.34 智慧語音盲打看板 • 通用字卡平台
       </div>
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">

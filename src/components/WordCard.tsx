@@ -65,6 +65,7 @@ export const WordCard: React.FC<WordCardProps> = ({
   };
 
   const handleFrontClick = (e: React.MouseEvent) => {
+    onFocus();
     if (isSystemLocked) return;
     // Don't flip if clicked inside input or sentence audio button
     if (
@@ -78,6 +79,7 @@ export const WordCard: React.FC<WordCardProps> = ({
   };
 
   const handleBackClick = (e: React.MouseEvent) => {
+    onFocus();
     if (
       (e.target as HTMLElement).closest('.btn-grade') ||
       (e.target as HTMLElement).closest('.example-box') ||
@@ -91,11 +93,13 @@ export const WordCard: React.FC<WordCardProps> = ({
 
   const handleWordSpeak = (e: React.MouseEvent) => {
     e.stopPropagation();
+    onFocus();
     speakText(word.en);
   };
 
   const handleSentenceSpeak = (e: React.MouseEvent) => {
     e.stopPropagation();
+    onFocus();
     speakText(word.exampleEn || word.en);
   };
 
@@ -105,6 +109,8 @@ export const WordCard: React.FC<WordCardProps> = ({
         isActiveFocus ? 'scale-[1.01]' : ''
       }`}
       data-en={word.en}
+      onMouseDown={onFocus}
+      onClick={onFocus}
     >
       <div
         className={`relative w-full h-full text-center transition-transform duration-400 [transform-style:preserve-3d] rounded-2xl ${

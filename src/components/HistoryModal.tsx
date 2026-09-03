@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, Trophy, AlertTriangle, Trash2, Calendar, User, CheckCircle2 } from 'lucide-react';
 import { QuizRecord } from '../types';
 
@@ -21,6 +21,24 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
   onClose,
   onClearCurrentHistory,
 }) => {
+  // Listen for Ctrl+2 or Escape to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === '2' || e.code === 'Digit2')) {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   // Filter history for current user and current bank
@@ -68,9 +86,14 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition cursor-pointer"
+            title="關閉視窗 (快捷鍵: Ctrl+2 或 Esc)"
+            className="px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-200 transition cursor-pointer flex items-center gap-1 text-xs"
           >
-            <X className="w-5 h-5" />
+            <span className="hidden sm:inline font-medium">關閉</span>
+            <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono font-bold text-[10px] text-slate-600 shadow-2xs">
+              Ctrl+2
+            </kbd>
+            <X className="w-4 h-4 ml-0.5" />
           </button>
         </div>
 
@@ -97,10 +120,17 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                   </tr>
                 ) : (
                   filteredHistory.map((item, idx) => {
+                    const sessionTotal = totalWordsCount > 0 ? totalWordsCount : (item.total || 4);
+                    const wrongCount = item.wrongWords ? item.wrongWords.length : 0;
+                    const computedRate =
+                      sessionTotal > 0
+                        ? `${Math.max(0, Math.round(((sessionTotal - wrongCount) / sessionTotal) * 100))}%`
+                        : item.rate;
+
                     const isPerfect =
-                      (!item.wrongWords || item.wrongWords.length === 0) &&
+                      wrongCount === 0 &&
                       (item.isReviewRound ||
-                        item.tested === totalWordsCount ||
+                        item.tested === sessionTotal ||
                         item.tested > 0);
 
                     const modeLabel = item.isReviewRound ? '🎯 [特訓]' : '📝 [常規]';
@@ -123,11 +153,15 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                           {item.time}
                         </td>
                         <td className="py-3 px-3 text-center font-semibold">
-                          {item.tested} / {totalWordsCount}
+                          {sessionTotal} / {sessionTotal}
                         </td>
                         <td className="py-3 px-3 text-center">
-                          <span className="px-2 py-0.5 rounded-full font-bold text-blue-700 bg-blue-50 border border-blue-200">
-                            {item.rate}
+                          <span className={`px-2 py-0.5 rounded-full font-bold ${
+                            computedRate === '100%'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-blue-50 text-blue-700 border border-blue-200'
+                          }`}>
+                            {computedRate}
                           </span>
                         </td>
                         <td className="py-3 px-3">
@@ -204,9 +238,13 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
           <button
             onClick={onClose}
-            className="px-4 py-1.5 text-xs sm:text-sm font-bold rounded-lg bg-slate-800 hover:bg-slate-900 text-white transition cursor-pointer"
+            title="關閉看板 (快捷鍵: Ctrl+2 或 Esc)"
+            className="px-4 py-1.5 text-xs sm:text-sm font-bold rounded-lg bg-slate-800 hover:bg-slate-900 text-white transition cursor-pointer flex items-center gap-1.5 shadow-xs"
           >
-            關閉視窗
+            <span>關閉視窗</span>
+            <kbd className="px-1.5 py-0.5 bg-slate-700 border border-slate-600 rounded font-mono text-[10px] text-slate-200">
+              Ctrl+2
+            </kbd>
           </button>
         </div>
       </div>

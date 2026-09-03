@@ -56,7 +56,7 @@ export default function App() {
   const [isTrainingMode, setIsTrainingMode] = useState<boolean>(false);
   const [currentReviewSessionId, setCurrentReviewSessionId] = useState<string>('');
   const [sliderValue, setSliderValue] = useState<number>(1);
-  const [sliderMax, setSliderMax] = useState<number>(10);
+  const [sliderMax, setSliderMax] = useState<number>(1);
   const [historyVersion, setHistoryVersion] = useState<number>(0);
 
   // Active focus and flipped cards tracking
@@ -107,9 +107,16 @@ export default function App() {
 
     const history = getQuizHistory();
     history.forEach((record) => {
+      const recordPrefix = record.bankPrefix || '';
+      const prefixMatch =
+        !recordPrefix ||
+        recordPrefix === currentBankPrefix ||
+        recordPrefix === 'ALL' ||
+        recordPrefix.replace(/\.json$/i, '') === currentBankPrefix.replace(/\.json$/i, '');
+
       if (
         record.name?.trim().toLowerCase() === cleanUser &&
-        record.bankPrefix === currentBankPrefix &&
+        prefixMatch &&
         record.wrongWords
       ) {
         record.wrongWords.forEach((w) => {
@@ -200,92 +207,143 @@ export default function App() {
   const calculateWeaknessScores = useCallback(
     (targetName: string, skipForceSliderValue = false) => {
       const cleanUser = targetName.trim().toLowerCase();
-      if (!cleanUser) return;
+      if (!cleanUser) {
+        setSliderMax(1);
+        setSliderValue(1);
+        return;
+      }
 
       const history = getQuizHistory();
       const prefix = getPrefixFromFileName(currentBankFileName);
-      const counter: WrongWordCountMap = {};
+      const wordCounts: { [en: string]: number } = {};
 
-      history.forEach((record) => {
-        if (
+      const userBankRecords = history.filter(
+        (record) =>
           record.name?.trim().toLowerCase() === cleanUser &&
-          record.bankPrefix === prefix &&
-          record.wrongWords
-        ) {
-          record.wrongWords.forEach((w) => {
+          (!record.bankPrefix ||
+            record.bankPrefix === prefix ||
+            record.bankPrefix === 'ALL' ||
+            record.bankPrefix.replace(/\.json$/i, '') === prefix.replace(/\.json$/i, ''))
+      );
+
+      // Aggregate error counts per unique word across historical records
+      userBankRecords.forEach((record) => {
+        if (record.wrongWords && Array.isArray(record.wrongWords)) {
+          record.wrongWords.forEach((w: any) => {
             if (w.en) {
-              const lower = w.en.trim().toLowerCase();
-              const slash = lower.split('/')[0].trim();
-              counter[lower] = (counter[lower] || 0) + 1;
-              if (slash && slash !== lower) {
-                counter[slash] = (counter[slash] || 0) + 1;
-              }
+              const rawKey = w.en.trim();
+              wordCounts[rawKey] = (wordCounts[rawKey] || 0) + 1;
             }
           });
         }
       });
 
-      const maxWrong = Math.max(0, ...Object.values(counter));
+      // 1. 不熟悉度門檻最大數值 = 累積單一字, 錯誤最多次的次數 (如 3)
+      const countsArray = Object.values(wordCounts);
+      const maxWrong = countsArray.length > 0 ? Math.max(0, ...countsArray) : 0;
 
-      if (maxWrong > 0) {
-        setSliderMax(Math.max(10, maxWrong + 1));
+      // 取得最新一筆紀錄（第0筆為最新，因 history 是 unshift 新紀錄）
+      const latestRecord = userBankRecords.length > 0 ? userBankRecords[0] : null;
+
+      // 判定最新一筆測驗是否達 100% 全對
+      const isLatest100Percent = Boolean(
+        latestRecord &&
+          latestRecord.tested > 0 &&
+          latestRecord.wrong === 0 &&
+          (!latestRecord.wrongWords || latestRecord.wrongWords.length === 0)
+      );
+
+      if (isLatest100Percent) {
+        // A-2. 如果本次測驗達 100% 時，門檻推升為 maxWrong + 1（即 3 + 1 = 4）
+        const targetVal = maxWrong > 0 ? maxWrong + 1 : 2;
+        setSliderMax(targetVal);
         if (!skipForceSliderValue) {
-          setSliderValue(1); // Default to threshold 1 so all wrong cards show immediately!
+          setSliderValue(targetVal);
         }
       } else {
-        setSliderMax(10);
+        // A-1 & A-3. 如果本次測驗未達 100% (或雖之前的歷史紀錄有達 100%, 但本次測試又有錯)，
+        // 則在 Ctrl+S / 存查時，門檻再度改回最大錯誤累積值 (maxWrong)
+        const targetVal = Math.max(1, maxWrong);
+        setSliderMax(targetVal);
         if (!skipForceSliderValue) {
-          setSliderValue(1);
+          setSliderValue(targetVal);
         }
       }
     },
     [currentBankFileName]
   );
 
-  // User Login Handler
-  const handleLogin = useCallback(() => {
-    const trimmed = username.trim();
-    if (!trimmed) {
-      showToast('⚠️ 請先輸入或選擇有效的姓名！', 'error');
-      return;
-    }
-
-    setIsLoggedIn(true);
-    setIsTrainingMode(false);
-    setCurrentReviewSessionId('');
-    setFlippedCards({});
-
-    // Check saved cache
-    const cache = getUserProgressCache();
-    let restoredProgress: UserProgressMap = {};
-    if (
-      cache &&
-      cache.bankName === currentBankFileName &&
-      cache.username === trimmed &&
-      cache.progress &&
-      Object.keys(cache.progress).length > 0
-    ) {
-      if (
-        window.confirm(
-          `🙋‍♂️ 偵測到受測者 [${trimmed}] 有尚未完成的特訓進度，是否要繼續挑戰？`
-        )
-      ) {
-        restoredProgress = cache.progress;
-      } else {
-        clearUserProgressCache();
+  // User Login Handler (supports explicit target name for history auto-login, or input state)
+  const handleLogin = useCallback(
+    (explicitName?: string) => {
+      const targetName = (explicitName !== undefined ? explicitName : username).trim();
+      if (!targetName) {
+        showToast('⚠️ 請先輸入或選擇有效的姓名！', 'error');
+        return;
       }
-    }
 
-    setUserProgress(restoredProgress);
-    calculateWeaknessScores(trimmed);
-    showToast(`🎉 歡迎 ${trimmed}，登入成功！`, 'success');
+      if (explicitName !== undefined) {
+        setUsername(targetName);
+      }
+      setIsLoggedIn(true);
+      setIsTrainingMode(false);
+      setCurrentReviewSessionId('');
+      setFlippedCards({});
 
-    // Focus first card
-    setTimeout(() => {
-      const firstWord = allWords[0]?.en;
-      if (firstWord) setActiveWordEn(firstWord);
-    }, 150);
-  }, [username, currentBankFileName, calculateWeaknessScores, showToast, allWords]);
+      // Check saved cache
+      const cache = getUserProgressCache();
+      let restoredProgress: UserProgressMap = {};
+      if (
+        cache &&
+        cache.bankName === currentBankFileName &&
+        cache.username === targetName &&
+        cache.progress &&
+        Object.keys(cache.progress).length > 0
+      ) {
+        if (
+          window.confirm(
+            `🙋‍♂️ 偵測到受測者 [${targetName}] 有尚未完成的特訓進度，是否要繼續挑戰？`
+          )
+        ) {
+          restoredProgress = cache.progress;
+        } else {
+          clearUserProgressCache();
+        }
+      }
+
+      setUserProgress(restoredProgress);
+      calculateWeaknessScores(targetName);
+      showToast(`🎉 歡迎 ${targetName}，登入成功！`, 'success');
+
+      // Focus first card
+      setTimeout(() => {
+        const firstWord = allWords[0]?.en;
+        if (firstWord) setActiveWordEn(firstWord);
+      }, 150);
+    },
+    [username, currentBankFileName, calculateWeaknessScores, showToast, allWords]
+  );
+
+  // When user types in input: if name differs from logged-in user, require confirmation for new user
+  const handleUsernameChange = useCallback(
+    (newName: string) => {
+      setUsername(newName);
+      if (isLoggedIn && newName.trim().toLowerCase() !== username.trim().toLowerCase()) {
+        setIsLoggedIn(false);
+      }
+    },
+    [isLoggedIn, username]
+  );
+
+  // When user selects from history dropdown: immediately log in without clicking confirm
+  const handleSelectHistoryUser = useCallback(
+    (selectedName: string) => {
+      const trimmed = selectedName.trim();
+      if (!trimmed) return;
+      handleLogin(trimmed);
+    },
+    [handleLogin]
+  );
 
   // Handle Cloud Word Bank Selection
   const handleSelectCloudBank = async (fileName: string) => {
@@ -371,6 +429,39 @@ export default function App() {
     }
   };
 
+  // Filter visible categories and words according to training mode
+  const visibleCategories = useMemo(() => {
+    if (!isTrainingMode) {
+      return wordCategories;
+    }
+
+    return wordCategories
+      .map((cat) => {
+        const filteredList = cat.list.filter((job) => {
+          const raw = job.en.trim();
+          const lower = raw.toLowerCase();
+          const slashPart = lower.split('/')[0].trim();
+          const wrongCount =
+            userWrongCounter[raw] ||
+            userWrongCounter[lower] ||
+            userWrongCounter[slashPart] ||
+            0;
+          return wrongCount >= sliderValue;
+        });
+        return { ...cat, list: filteredList };
+      })
+      .filter((cat) => cat.list.length > 0);
+  }, [wordCategories, isTrainingMode, userWrongCounter, sliderValue]);
+
+  // Compute visible words flat list
+  const visibleWords = useMemo(() => {
+    const list: WordItem[] = [];
+    visibleCategories.forEach((cat) => {
+      cat.list.forEach((item) => list.push(item));
+    });
+    return list;
+  }, [visibleCategories]);
+
   // Save current quiz results to history
   const saveCurrentResult = useCallback(
     (showAlert = false) => {
@@ -380,36 +471,59 @@ export default function App() {
         return;
       }
 
-      // Count tested
-      let tested = 0;
-      let correct = 0;
-      let wrong = 0;
+      // In both regular and training modes, the total questions base is the entire bank (totalWordsCount)
+      const targetTotal = totalWordsCount || allWords.length;
+
+      let answeredCount = 0;
       const wrongWordsList: { en: string; ch: string }[] = [];
 
-      allWords.forEach((word) => {
-        const status = userProgress[word.en];
-        if (status === 'correct') {
-          tested++;
-          correct++;
-        } else if (status === 'wrong') {
-          tested++;
-          wrong++;
-          wrongWordsList.push({ en: word.en, ch: word.ch });
-        }
-      });
+      if (isTrainingMode) {
+        // In weakness mode, evaluate the words tested in this drill
+        visibleWords.forEach((word) => {
+          const status = userProgress[word.en];
+          if (status === 'correct') {
+            answeredCount++;
+          } else if (status === 'wrong') {
+            answeredCount++;
+            wrongWordsList.push({ en: word.en, ch: word.ch });
+          } else {
+            // 未測驗字一律計入答錯字清單
+            wrongWordsList.push({ en: word.en, ch: word.ch });
+          }
+        });
+      } else {
+        allWords.forEach((word) => {
+          const status = userProgress[word.en];
+          if (status === 'correct') {
+            answeredCount++;
+          } else if (status === 'wrong') {
+            answeredCount++;
+            wrongWordsList.push({ en: word.en, ch: word.ch });
+          } else {
+            // 未測驗字一律計入答錯字清單
+            wrongWordsList.push({ en: word.en, ch: word.ch });
+          }
+        });
+      }
 
-      if (tested === 0) {
+      if (answeredCount === 0) {
         if (showAlert) showToast('請至少測驗一題後再進行儲存！', 'info');
         return;
       }
 
-      const rateVal = isTrainingMode
-        ? totalWordsCount === 0
+      if (targetTotal === 0) {
+        return;
+      }
+
+      const wrong = wrongWordsList.length;
+      const correct = Math.max(0, targetTotal - wrong);
+      const tested = targetTotal;
+
+      // 正確率計算：嚴格以 (總題數 - 錯題數) / 總題數 判定 (例: 4 題錯 2 題 = 50%)
+      const rateVal =
+        targetTotal === 0
           ? 100
-          : Math.max(0, Math.round(((totalWordsCount - wrong) / totalWordsCount) * 100))
-        : totalWordsCount === 0
-        ? 100
-        : Math.max(0, Math.round((correct / totalWordsCount) * 100));
+          : Math.max(0, Math.round((correct / targetTotal) * 100));
 
       const finalRateString = `${rateVal}%`;
 
@@ -425,6 +539,7 @@ export default function App() {
       const newRecord: QuizRecord = {
         name: currentName,
         time: timestamp,
+        total: targetTotal,
         tested,
         correct,
         wrong,
@@ -456,7 +571,12 @@ export default function App() {
       refreshHistoryUsers();
       setHistoryVersion((v) => v + 1);
 
-      if (tested === totalWordsCount && wrong === 0) {
+      // A: 在按 存查歷史紀錄 or Ctrl+S 儲存時，立即同步更動篩選歷史不熟悉度門檻
+      if (currentName) {
+        calculateWeaknessScores(currentName, false);
+      }
+
+      if (tested === targetTotal && wrong === 0) {
         confetti({
           particleCount: 120,
           spread: 70,
@@ -473,12 +593,57 @@ export default function App() {
       isLoggedIn,
       totalWordsCount,
       allWords,
+      visibleWords,
       userProgress,
       isTrainingMode,
       currentBankPrefix,
       currentReviewSessionId,
+      calculateWeaknessScores,
       refreshHistoryUsers,
       showToast,
+    ]
+  );
+
+  // Handle Open History with Auto-Save of In-Progress Result
+  const handleOpenHistoryWithSave = useCallback(
+    (showAlert = false) => {
+      const targetWords = isTrainingMode ? visibleWords : allWords;
+      let hasAnyProgress = false;
+      targetWords.forEach((word) => {
+        if (userProgress[word.en]) {
+          hasAnyProgress = true;
+        }
+      });
+
+      if (hasAnyProgress && username.trim()) {
+        saveCurrentResult(showAlert);
+      } else if (username.trim()) {
+        calculateWeaknessScores(username.trim(), false);
+      }
+
+      // 當按 「存查歷史 (Ctrl+S)」弱點特訓的狀態, 就恢復成還沒執行
+      if (isTrainingMode) {
+        setIsTrainingMode(false);
+        setCurrentReviewSessionId('');
+        setUserProgress({});
+        setFlippedCards({});
+        clearUserProgressCache();
+        setTimeout(() => {
+          const firstWord = allWords[0]?.en;
+          if (firstWord) setActiveWordEn(firstWord);
+        }, 100);
+      }
+
+      setIsHistoryOpen(true);
+    },
+    [
+      isTrainingMode,
+      visibleWords,
+      allWords,
+      userProgress,
+      username,
+      saveCurrentResult,
+      calculateWeaknessScores,
     ]
   );
 
@@ -539,13 +704,25 @@ export default function App() {
     }
 
     if (!isTrainingMode) {
+      // 若進入特訓前在一般模式已有作答進度，先自動儲存本次成果
+      const targetWords = allWords;
+      let hasAnyProgress = false;
+      targetWords.forEach((word) => {
+        if (userProgress[word.en]) {
+          hasAnyProgress = true;
+        }
+      });
+      if (hasAnyProgress && trimmed) {
+        saveCurrentResult(false);
+      }
+
       setIsTrainingMode(true);
       const newSessionId = `session_${Date.now()}`;
       setCurrentReviewSessionId(newSessionId);
       setUserProgress({});
       setFlippedCards({});
-      setSliderValue(1);
 
+      // B: 在按 弱點特訓時，呼叫同一段程式先設定好正確門檻 (不用顯示歷史頁)，再進行卡片顯示
       calculateWeaknessScores(trimmed, false);
       showToast('🔥 已開啟弱點特訓模式！可透過上方拉桿調整錯字門檻。', 'success');
     } else {
@@ -558,46 +735,14 @@ export default function App() {
     }
   };
 
-  // Filter visible categories and words according to training mode
-  const visibleCategories = useMemo(() => {
-    if (!isTrainingMode) {
-      return wordCategories;
-    }
-
-    return wordCategories
-      .map((cat) => {
-        const filteredList = cat.list.filter((job) => {
-          const raw = job.en.trim();
-          const lower = raw.toLowerCase();
-          const slashPart = lower.split('/')[0].trim();
-          const wrongCount =
-            userWrongCounter[raw] ||
-            userWrongCounter[lower] ||
-            userWrongCounter[slashPart] ||
-            0;
-          return wrongCount >= sliderValue;
-        });
-        return { ...cat, list: filteredList };
-      })
-      .filter((cat) => cat.list.length > 0);
-  }, [wordCategories, isTrainingMode, userWrongCounter, sliderValue]);
-
-  // Compute visible words flat list
-  const visibleWords = useMemo(() => {
-    const list: WordItem[] = [];
-    visibleCategories.forEach((cat) => {
-      cat.list.forEach((item) => list.push(item));
-    });
-    return list;
-  }, [visibleCategories]);
-
   // Dashboard Stats
   const dashboardStats = useMemo(() => {
+    const targetList = isTrainingMode ? visibleWords : allWords;
     let tested = 0;
     let correct = 0;
     let wrong = 0;
 
-    allWords.forEach((word) => {
+    targetList.forEach((word) => {
       const status = userProgress[word.en];
       if (status === 'correct') {
         tested++;
@@ -608,22 +753,20 @@ export default function App() {
       }
     });
 
-    const displayRate = isTrainingMode
-      ? totalWordsCount === 0
+    const targetTotal = targetList.length;
+    const displayRate =
+      targetTotal === 0
         ? 100
-        : Math.max(0, Math.round(((totalWordsCount - wrong) / totalWordsCount) * 100))
-      : totalWordsCount === 0
-      ? 100
-      : Math.max(0, Math.round((correct / totalWordsCount) * 100));
+        : Math.max(0, Math.round((correct / targetTotal) * 100));
 
     return {
-      totalWords: totalWordsCount,
+      totalWords: targetTotal,
       testedCount: tested,
       correctCount: correct,
       wrongCount: wrong,
       masteryRate: displayRate,
     };
-  }, [allWords, userProgress, totalWordsCount, isTrainingMode]);
+  }, [allWords, visibleWords, userProgress, isTrainingMode]);
 
   // Stop Continuous Playback Helper
   const stopPlayAll = useCallback(
@@ -738,12 +881,45 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement as HTMLElement | null;
-      const isInput = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'SELECT';
+      // Check if user is typing in an external input (like student name login, dropdown, or modal)
+      const isOutsideInput =
+        activeEl?.closest('.user-panel, header, .modal-container, select') !== null;
+
+      // Resolve effective active word:
+      // 1. activeWordEn if valid in visibleWords
+      // 2. or find any visible word that is currently flipped
+      // 3. or default to the first visible word
+      let currentWordEn = activeWordEn;
+      if (!currentWordEn || !visibleWords.some((w) => w.en === currentWordEn)) {
+        const flippedVisible = visibleWords.find((w) => flippedCards[w.en]);
+        if (flippedVisible) {
+          currentWordEn = flippedVisible.en;
+        } else if (visibleWords.length > 0) {
+          currentWordEn = visibleWords[0]?.en;
+        }
+      }
 
       // 0. Ctrl/Cmd + 1: Toggle continuous playback of all visible cards
       if ((e.ctrlKey || e.metaKey) && (e.key === '1' || e.code === 'Digit1')) {
         e.preventDefault();
         togglePlayAll();
+        return;
+      }
+
+      // 0.1 Ctrl/Cmd + 2: Close HistoryModal ("Global 存查歷史紀錄與學習歷程看板 視窗")
+      if ((e.ctrlKey || e.metaKey) && (e.key === '2' || e.code === 'Digit2')) {
+        e.preventDefault();
+        setIsHistoryOpen(false);
+        return;
+      }
+
+      // 0.2 Ctrl/Cmd + 3: Launch or toggle Weakness Training
+      if ((e.ctrlKey || e.metaKey) && (e.key === '3' || e.code === 'Digit3')) {
+        e.preventDefault();
+        if (isHistoryOpen) {
+          setIsHistoryOpen(false);
+        }
+        handleToggleWeaknessTraining();
         return;
       }
 
@@ -754,10 +930,10 @@ export default function App() {
         return;
       }
 
-      // 1. Ctrl/Cmd + S: Save result
+      // 1. Ctrl/Cmd + S: Save result and open history modal
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        saveCurrentResult(true);
+        handleOpenHistoryWithSave(true);
         return;
       }
 
@@ -773,11 +949,13 @@ export default function App() {
 
       // 3. Tab: Switch to next visible card input
       if (e.key === 'Tab' && visibleWords.length > 0) {
+        if (isOutsideInput) return;
         e.preventDefault();
-        const currentIndex = visibleWords.findIndex((w) => w.en === activeWordEn);
+        const currentIndex = visibleWords.findIndex((w) => w.en === currentWordEn);
+        const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
         const nextIndex = e.shiftKey
-          ? (currentIndex - 1 + visibleWords.length) % visibleWords.length
-          : (currentIndex + 1) % visibleWords.length;
+          ? (safeCurrentIndex - 1 + visibleWords.length) % visibleWords.length
+          : (safeCurrentIndex + 1) % visibleWords.length;
         const nextWord = visibleWords[nextIndex]?.en;
         if (nextWord) {
           setActiveWordEn(nextWord);
@@ -786,64 +964,109 @@ export default function App() {
       }
 
       // 4. ArrowUp / ArrowDown: Flip card & speak word
-      if (isInput && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-        e.preventDefault();
-        if (activeWordEn) {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        if (isOutsideInput) return;
+        if (currentWordEn) {
+          e.preventDefault();
+          const nextFlipped = !flippedCards[currentWordEn];
           setFlippedCards((prev) => ({
             ...prev,
-            [activeWordEn]: !prev[activeWordEn],
+            [currentWordEn]: nextFlipped,
           }));
-          speakText(activeWordEn);
+          setActiveWordEn(currentWordEn);
+          if (nextFlipped) {
+            speakText(currentWordEn);
+          }
         }
         return;
       }
 
-      // 5. ArrowLeft / ArrowRight: Navigate cards if card is flipped
-      if (activeWordEn && flippedCards[activeWordEn] && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-        e.preventDefault();
-        const currentIndex = visibleWords.findIndex((w) => w.en === activeWordEn);
-        const targetIndex =
-          e.key === 'ArrowLeft'
-            ? (currentIndex - 1 + visibleWords.length) % visibleWords.length
-            : (currentIndex + 1) % visibleWords.length;
-        const targetWord = visibleWords[targetIndex]?.en;
-        if (targetWord) {
-          setActiveWordEn(targetWord);
+      // 5. ArrowLeft / ArrowRight: Navigate cards (front or flipped)
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (isOutsideInput) return;
+
+        if (visibleWords.length > 0 && currentWordEn) {
+          const isCurrentlyFlipped = !!flippedCards[currentWordEn];
+
+          // If user is actively typing multiple characters inside spelling input, let them move cursor inside text
+          if (!isCurrentlyFlipped && activeEl?.tagName === 'INPUT') {
+            const inputEl = activeEl as HTMLInputElement;
+            if (inputEl.value.length > 0 && inputEl.selectionStart !== null) {
+              if (
+                (e.key === 'ArrowLeft' && inputEl.selectionStart > 0) ||
+                (e.key === 'ArrowRight' &&
+                  inputEl.selectionEnd !== null &&
+                  inputEl.selectionEnd < inputEl.value.length)
+              ) {
+                return;
+              }
+            }
+          }
+
+          e.preventDefault();
+          const currentIndex = visibleWords.findIndex((w) => w.en === currentWordEn);
+          const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+          const targetIndex =
+            e.key === 'ArrowLeft'
+              ? (safeCurrentIndex - 1 + visibleWords.length) % visibleWords.length
+              : (safeCurrentIndex + 1) % visibleWords.length;
+          const targetWord = visibleWords[targetIndex]?.en;
+
+          if (targetWord) {
+            setActiveWordEn(targetWord);
+
+            // Maintain flipped review mode when navigating between flipped cards
+            if (isCurrentlyFlipped) {
+              setFlippedCards((prev) => ({
+                ...prev,
+                [targetWord]: true,
+              }));
+              speakText(targetWord);
+            }
+          }
+          return;
         }
-        return;
       }
 
       // 6. Shift + Y/O: Mark correct, Shift + N/X: Mark wrong
-      if (e.shiftKey && activeWordEn) {
+      if (e.shiftKey && currentWordEn) {
         const keyLower = e.key.toLowerCase();
-        if (keyLower === 'y' || keyLower === 'o') {
+        if (keyLower === 'y' || keyLower === 'o' || e.code === 'KeyY' || e.code === 'KeyO') {
           e.preventDefault();
-          handleWordStatusChange(activeWordEn, 'correct');
+          handleWordStatusChange(currentWordEn, 'correct');
           return;
         }
-        if (keyLower === 'n' || keyLower === 'x') {
+        if (keyLower === 'n' || keyLower === 'x' || e.code === 'KeyN' || e.code === 'KeyX') {
           e.preventDefault();
-          handleWordStatusChange(activeWordEn, 'wrong');
+          handleWordStatusChange(currentWordEn, 'wrong');
           return;
         }
       }
 
+      // Universal Backquote (` or ~) Detection across all keyboard layouts and IME states
+      const isBackquoteKey =
+        e.key === '`' ||
+        e.key === '~' ||
+        e.code === 'Backquote' ||
+        e.keyCode === 192;
+
       // 7. Ctrl + `: Speak target word
-      if ((e.ctrlKey || e.metaKey) && (e.key === '`' || e.code === 'Backquote')) {
-        if (activeWordEn) {
+      if ((e.ctrlKey || e.metaKey) && isBackquoteKey) {
+        if (currentWordEn) {
           e.preventDefault();
-          speakText(activeWordEn);
+          speakText(currentWordEn);
         }
         return;
       }
 
       // 8. ` or ~ without Ctrl: Speak example sentence
-      if (!e.ctrlKey && !e.metaKey && (e.key === '`' || e.key === '~')) {
-        if (activeWordEn) {
+      if (!e.ctrlKey && !e.metaKey && isBackquoteKey) {
+        if (currentWordEn) {
           e.preventDefault();
-          const targetWordObj = allWords.find((w) => w.en === activeWordEn);
-          speakText(targetWordObj?.exampleEn || activeWordEn);
+          const targetWordObj = allWords.find((w) => w.en === currentWordEn);
+          speakText(targetWordObj?.exampleEn || targetWordObj?.en || currentWordEn);
         }
+        return;
       }
     };
 
@@ -855,11 +1078,26 @@ export default function App() {
     visibleWords,
     allWords,
     isPlayingAll,
+    isHistoryOpen,
     togglePlayAll,
     stopPlayAll,
-    saveCurrentResult,
+    handleToggleWeaknessTraining,
+    handleOpenHistoryWithSave,
     handleWordStatusChange,
   ]);
+
+  // Scroll active card into view smoothly whenever activeWordEn changes
+  useEffect(() => {
+    if (!activeWordEn) return;
+    try {
+      const cardEl = document.querySelector(`[data-en="${CSS.escape(activeWordEn)}"]`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeWordEn]);
 
   // Export History JSON
   const handleExportHistory = () => {
@@ -955,10 +1193,10 @@ export default function App() {
             username={username}
             isLoggedIn={isLoggedIn}
             historyUsers={historyUsers}
-            onUsernameChange={setUsername}
-            onLogin={handleLogin}
-            onSaveResult={() => saveCurrentResult(true)}
-            onOpenHistory={() => setIsHistoryOpen(true)}
+            onUsernameChange={handleUsernameChange}
+            onLogin={() => handleLogin()}
+            onSelectHistoryUser={handleSelectHistoryUser}
+            onOpenHistory={() => handleOpenHistoryWithSave(true)}
             onExportHistory={handleExportHistory}
             onImportHistory={handleImportHistory}
             onOpenChangelog={() => setIsChangelogOpen(true)}

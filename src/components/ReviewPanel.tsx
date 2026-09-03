@@ -41,8 +41,7 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
             value={sliderValue}
             onChange={(e) => onSliderChange(parseInt(e.target.value, 10))}
             tabIndex={-1}
-            disabled={!isTrainingMode}
-            className="w-28 sm:w-36 h-2 bg-amber-200 rounded-lg appearance-none cursor-pointer accent-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-28 sm:w-36 h-2 bg-amber-200 rounded-lg appearance-none cursor-pointer accent-amber-600 hover:bg-amber-300 transition"
           />
           <span className="font-extrabold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-300 min-w-8 text-center text-sm shadow-xs">
             {sliderValue}
@@ -92,6 +91,7 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
         <button
           onClick={onToggleWeaknessTraining}
           tabIndex={-1}
+          title={isTrainingMode ? '退出弱點特訓 (快捷鍵: Ctrl+3)' : '啟動弱點特訓 (快捷鍵: Ctrl+3)'}
           className={`px-3.5 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer ${
             isTrainingMode
               ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400 ring-offset-1'
@@ -100,6 +100,9 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
         >
           <Flame className={`w-3.5 h-3.5 ${isTrainingMode ? 'text-emerald-200 animate-pulse' : 'text-amber-200'}`} />
           <span>{isTrainingMode ? '🟢 弱點特訓中' : '🔥 弱點特訓'}</span>
+          <kbd className="hidden sm:inline-block px-1.5 py-0.2 bg-black/20 rounded font-mono text-[10px] text-white/90">
+            Ctrl+3
+          </kbd>
         </button>
       </div>
     </div>

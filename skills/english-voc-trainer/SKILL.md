@@ -103,14 +103,24 @@ When the student types into a card's spelling input:
    - Check if input is a valid prefix: `standardAnswers.some(ans => ans.toLowerCase().startsWith(input))`.
    - If `!isValidPrefix` or `input.length > maxLen`: mark card as `wrong` (❌) immediately, alerting the student to typo or spelling mistake without waiting for Enter.
 
-### 4.2 Weakness Calculation & Slider Thresholding
+### 4.2 Weakness Calculation & Slider Thresholding (V8.26 Specification)
 1. Iterate over all history records matching the user name and current `bankPrefix`.
 2. Aggregate wrong occurrences per word: `currentUserWrongCounter[word.en] = (currentUserWrongCounter[word.en] || 0) + 1`.
-3. Compute `maxWrongCount = Math.max(...Object.values(currentUserWrongCounter))`.
-4. Configure slider: `min = 1`, `max = maxWrongCount > 0 ? maxWrongCount + 1 : 10`.
+3. Compute `maxWrongCount = Math.max(0, ...Object.values(currentUserWrongCounter))`.
+4. Configure slider:
+   - **Default State**: `sliderMax = maxWrongCount > 0 ? maxWrongCount : 1`, and `sliderValue = sliderMax`.
+   - **100% Perfect State**: If the latest test is 100% correct, `sliderMax = maxWrongCount + 1`, and `sliderValue = sliderMax` (filtering to 0 cards).
 5. In Weakness Mode (`isTrainingMode = true`):
    - Only cards where `currentUserWrongCounter[word.en] >= sliderThreshold` remain visible.
    - Hide categories with 0 visible cards.
+
+### 4.3 Accuracy Calculation & History Table Rule (V8.26 Specification)
+- **Strict Accuracy Formula**: In all cases (regular mode, training mode, and historical retro-calibration), the accuracy is strictly:
+  $$\text{Accuracy Rate} = \frac{\text{Total Words Base} - \text{Wrong Words Count}}{\text{Total Words Base}} \times 100\%$$
+- Total Words Base is always the full word bank size (`totalWordsCount`, e.g. 4).
+- Example: 4 questions with 2 wrong answers (`act`, `audience`) = **50%** accuracy, with Tested / Total displayed as **4 / 4**.
+- Any unattempted question within the evaluated scope counts as wrong in the final submission to maintain mathematical rigor.
+- "儲存本次成果" is seamlessly combined into "存查歷史紀錄 (Ctrl+S)".
 
 ---
 

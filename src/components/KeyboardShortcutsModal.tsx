@@ -56,7 +56,17 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
     {
       keys: ['Ctrl/Cmd', '+', 'S'],
       label: '即時儲存成果 💾',
-      desc: '手動將本次測驗統計數據與錯字清單寫入歷史紀錄',
+      desc: '手動將本次測驗統計數據與錯字清單寫入歷史紀錄，並開啟歷史歷程看板',
+    },
+    {
+      keys: ['Ctrl/Cmd', '+', '2'],
+      label: '關閉歷史歷程看板 ✖️',
+      desc: '隨時關閉 Global 存查歷史紀錄與學習歷程看板視窗 (按 Esc 亦可關閉)',
+    },
+    {
+      keys: ['Ctrl/Cmd', '+', '3'],
+      label: '啟動/退出弱點特訓 🔥',
+      desc: '一鍵開啟或切換弱點特訓模式，自動根據歷史錯字與不熟悉度門檻展開特訓卡片',
     },
   ];
 
