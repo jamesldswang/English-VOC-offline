@@ -75,8 +75,12 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
               <Trophy className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-800 tracking-tight">
-                Global 存查歷史紀錄與學習歷程看板
+              <h2 className="text-lg font-bold text-slate-800 tracking-tight flex items-center gap-2">
+                <span>Global 存查歷史紀錄與學習歷程看板</span>
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Firebase 雲端同步
+                </span>
               </h2>
               <p className="text-xs text-slate-500">
                 目前檢視受測者：<span className="font-bold text-blue-600">{currentUsername || '(未指定)'}</span> • 教材代碼：<span className="font-bold text-emerald-600">{currentBankPrefix || '(全體)'}</span>

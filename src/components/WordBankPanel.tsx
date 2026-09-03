@@ -1,9 +1,10 @@
 import React, { useRef } from 'react';
 import { Globe, BookOpen, Upload, Trash2, Loader2 } from 'lucide-react';
-import { CloudWordBankIndex } from '../types';
+import { CloudBankItem } from '../types';
 
 interface WordBankPanelProps {
-  cloudBanks: CloudWordBankIndex;
+  cloudBanks: CloudBankItem[];
+  unansweredCounts: Record<string, number>;
   currentBankFileName: string;
   isLoadingCloud: boolean;
   onSelectBank: (fileName: string) => void;
@@ -13,6 +14,7 @@ interface WordBankPanelProps {
 
 export const WordBankPanel: React.FC<WordBankPanelProps> = ({
   cloudBanks,
+  unansweredCounts,
   currentBankFileName,
   isLoadingCloud,
   onSelectBank,
@@ -31,7 +33,9 @@ export const WordBankPanel: React.FC<WordBankPanelProps> = ({
     }
   };
 
-  const bankKeys = Object.keys(cloudBanks);
+  const hasCurrentInList = Boolean(
+    currentBankFileName && cloudBanks.some((b) => b.fileName === currentBankFileName)
+  );
 
   return (
     <div className="bg-emerald-50/70 p-4 rounded-xl shadow-xs border border-emerald-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
@@ -45,19 +49,38 @@ export const WordBankPanel: React.FC<WordBankPanelProps> = ({
         <div className="relative">
           <select
             value={currentBankFileName || ''}
-            onChange={(e) => onSelectBank(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value) {
+                onSelectBank(e.target.value);
+              }
+            }}
             disabled={isLoadingCloud}
             tabIndex={-1}
-            className="px-3 py-1.5 text-sm font-semibold border border-emerald-400 rounded-lg bg-white text-slate-800 outline-none hover:border-emerald-500 cursor-pointer shadow-xs max-w-xs md:max-w-md truncate"
+            className="px-3 py-1.5 text-sm font-semibold border border-emerald-400 rounded-lg bg-white text-slate-800 outline-none hover:border-emerald-500 cursor-pointer shadow-xs max-w-sm md:max-w-xl truncate"
           >
-            <option value="" disabled>
-              {isLoadingCloud ? '📡 雲端題庫載入中...' : '請選擇題庫!!'}
+            <option value="">
+              {isLoadingCloud ? '📡 雲端題庫載入中...' : '-- 請選擇題庫 --'}
             </option>
-            {bankKeys.map((name) => (
-              <option key={name} value={name}>
-                📖 {name.replace(/\.json$/i, '')}
+
+            {/* If currently selected bank is a custom or starter bank not in cloudBanks list */}
+            {currentBankFileName && !hasCurrentInList && (
+              <option value={currentBankFileName}>
+                {currentBankFileName} [
+                {unansweredCounts[currentBankFileName] ?? 0}/
+                {unansweredCounts[currentBankFileName] ?? 0}]
               </option>
-            ))}
+            )}
+
+            {cloudBanks.map((bank) => {
+              const unans = unansweredCounts[bank.fileName] ?? bank.totalWords;
+              const titlePart = bank.categoryTitle ? ` (${bank.categoryTitle})` : '';
+              const label = `${bank.fileName} [${unans}/${bank.totalWords}]${titlePart}`;
+              return (
+                <option key={bank.fileName} value={bank.fileName}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
         </div>
 

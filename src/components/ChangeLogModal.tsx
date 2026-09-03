@@ -30,25 +30,85 @@ export const ChangeLogModal: React.FC<ChangeLogModalProps> = ({ isOpen, onClose 
 
         {/* Body */}
         <div className="p-5 overflow-y-auto space-y-4 max-h-[70vh] text-xs leading-relaxed text-slate-700">
-          <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200">
-            <div className="flex items-center gap-1.5 font-bold text-indigo-900 text-sm mb-1.5">
-               <GitCommit className="w-4 h-4 text-indigo-600" />
-               <span>🏆 V8.34 卡片背面萬能快捷鍵 & 導航修復版 (最新)</span>
-             </div>
-             <ul className="list-disc list-inside space-y-1 text-slate-600">
-               <li>
-                 <strong>背面按 ` 朗讀例句全鍵相容</strong>：支援跨系統與中文輸入法（相容 <code>Backquote</code>、<code>keyCode 192</code>、<code>`</code> 與 <code>~</code>），在字卡翻至背面看答案時，按 <code>`</code> 立即朗讀完整例句，按 <code>Ctrl+`</code> 立即朗讀單字。
-               </li>
-               <li>
-                 <strong>上下鍵 (ArrowUp/Down) 雙向無縫翻面</strong>：解除原先限定輸入框焦點的限制，卡片正面翻至背面、背面翻回正面均可隨時按上下鍵翻轉並同步發音。
-               </li>
-               <li>
-                 <strong>左右鍵 (ArrowLeft/Right) 智慧切換與滑動定位</strong>：卡片翻至背面時按左右鍵可連續瀏覽上一張/下一張卡片背後解析，畫面自動平滑滾動至目標卡片。
-               </li>
-               <li>
-                 <strong>全卡點擊焦點綁定</strong>：點擊卡片正面或背面任何區域立即鎖定為當前作用卡片，確保所有快捷鍵精準作用。
-               </li>
-             </ul>
+          <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-300">
+            <div className="flex items-center gap-1.5 font-bold text-emerald-900 text-sm mb-1.5">
+              <GitCommit className="w-4 h-4 text-emerald-600" />
+              <span>🏆 V8.38 弱點特訓卡片留存 & Ctrl+S 結算對錯版 (最新)</span>
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-slate-700">
+              <li>
+                <strong>特訓卡片完整留存不消失</strong>：修正在特訓過程中每答對一題即觸發提早結算導致門檻推升、卡片瞬間消失的問題。現在無論拼字正確或標記答對，卡片皆安穩保留在畫面上並標註綠色勾勾，保持練習節奏流暢。
+              </li>
+              <li>
+                <strong>Ctrl+S 統一結算對錯</strong>：作答進度僅於本機安全快取，直到受測者按下 <code>Ctrl+S</code>（或點擊「存查歷史紀錄」）時，才一併統一計算本次特訓的所有對錯、更新題庫歷程、校準門檻並同步 Firebase。
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
+              <GitCommit className="w-3.5 h-3.5 text-slate-500" />
+              <span>✨ V8.37 雲端教材市集分子最新測驗實況精準校準版</span>
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-slate-600">
+              <li>
+                <strong>最新實況即時對齊</strong>：教材市集分子與全域統計指標精準對齊歷史歷程中最新一筆測驗結果，當測驗達成 100% 全對時，選項即時精確顯示為 <code>[0/4]</code>。
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
+              <GitCommit className="w-3.5 h-3.5 text-slate-500" />
+              <span>✨ V8.36 Firebase 雲端同步 & 全域掌握度指標雙軌版</span>
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-slate-600">
+              <li>
+                <strong>受測者三大核心指標橫幅</strong>：在「快捷鍵指南」按鈕右側新增專屬膠囊面板，格式精確呈現 <code>📊 不熟字/總題數： 2721 / 3236 | 熟悉字： 515</code>。
+              </li>
+              <li>
+                <strong>Firebase Firestore 雲端無縫整合</strong>：正式串接 Firebase 雲端資料庫，存查紀錄自動同步上傳與開機雙向無損聚合。
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
+              <GitCommit className="w-3.5 h-3.5 text-slate-500" />
+              <span>✨ V8.35 雲端教材市集分子分母精確顯示版</span>
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-slate-600">
+              <li>
+                <strong>智慧雲端教材市集分子/分母精準對齊</strong>：下拉選單各題庫選項格式嚴格呈現 <code>題庫名稱 [分子/分母] (分類說明)</code>，如 <code>01_國中字庫.json [0/62] (01. 國中基礎單字清單 (A 名詞/代名詞篇))</code>。
+              </li>
+              <li>
+                <strong>分母為每個字庫總數</strong>：精確讀取並統計所有雲端字庫真實單字總量（如 62、65、63 等）。
+              </li>
+              <li>
+                <strong>分子為受測者還未答對題數</strong>：即時連動當前受測者的測驗歷程與當前答題狀態，未答對題目自動列為分子；完成且全對時精準顯示為 <code>0</code>。
+              </li>
+              <li>
+                <strong>極速秒載與預設選單體驗</strong>：預先整合全套雲端字庫元資料，市集選單無延遲秒級展開；預設顯示 <code>-- 請選擇題庫 --</code>，選取即載入。
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
+              <GitCommit className="w-3.5 h-3.5 text-slate-500" />
+              <span>✨ V8.34 卡片背面萬能快捷鍵 & 導航修復版</span>
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-slate-600">
+              <li>
+                <strong>背面按 ` 朗讀例句全鍵相容</strong>：支援跨系統與中文輸入法（相容 <code>Backquote</code>、<code>keyCode 192</code>、<code>`</code> 與 <code>~</code>），按 <code>`</code> 朗讀例句，按 <code>Ctrl+`</code> 朗讀單字。
+              </li>
+              <li>
+                <strong>上下鍵 (ArrowUp/Down) 雙向翻面</strong>：隨時按上下鍵翻面並發音。
+              </li>
+              <li>
+                <strong>左右鍵 (ArrowLeft/Right) 平滑切換</strong>：背面按左右鍵連續切換上一張/下一張卡片。
+              </li>
+            </ul>
           </div>
 
           <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">

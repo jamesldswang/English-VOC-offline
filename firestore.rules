@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // English VOC Trainer public records & sync
+    // Allow read and write for quiz records and user progress stats
+    match /quiz_history/{recordId} {
+      allow read, write: if true;
+    }
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+  }
+}

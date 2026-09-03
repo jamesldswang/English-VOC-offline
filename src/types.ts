@@ -49,6 +49,14 @@ export interface CloudWordBankIndex {
   [fileName: string]: string; // URL
 }
 
+export interface CloudBankItem {
+  fileName: string;
+  rawUrl: string;
+  totalWords: number;
+  categoryTitle: string;
+  content?: string;
+}
+
 export interface WrongWordCountMap {
   [wordEn: string]: number;
 }

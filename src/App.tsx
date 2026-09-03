@@ -7,10 +7,12 @@ import {
   QuizRecord,
   UserProgressMap,
   CloudWordBankIndex,
+  CloudBankItem,
   WrongWordCountMap,
   WordProgressStatus,
 } from './types';
 import { DEFAULT_STARTER_BANK } from './data/starterBanks';
+import { OFFICIAL_CLOUD_BANKS_META } from './data/cloudBanksMeta';
 import {
   GIST_API_URL,
   STORAGE_KEYS,
@@ -25,6 +27,11 @@ import {
   mergeHistoryRecords,
   downloadJSONFile,
 } from './utils/storage';
+import {
+  syncQuizRecordToFirebase,
+  fetchQuizHistoryFromFirebase,
+  syncAllRecordsToFirebase,
+} from './lib/firebaseSync';
 import { speakText, stopSpeaking } from './utils/speech';
 
 import { Header } from './components/Header';
@@ -45,10 +52,8 @@ export default function App() {
 
   // Word Bank State
   const [wordCategories, setWordCategories] = useState<WordCategory[]>(DEFAULT_STARTER_BANK);
-  const [currentBankFileName, setCurrentBankFileName] = useState<string>('01_精選示範字庫 (Starter Pack).json');
-  const [cloudBanks, setCloudBanks] = useState<CloudWordBankIndex>({
-    '01_精選示範字庫 (Starter Pack).json': 'local_starter',
-  });
+  const [currentBankFileName, setCurrentBankFileName] = useState<string>('');
+  const [cloudBanks, setCloudBanks] = useState<CloudBankItem[]>(OFFICIAL_CLOUD_BANKS_META);
   const [isLoadingCloud, setIsLoadingCloud] = useState<boolean>(false);
 
   // Progress & Review State
@@ -139,6 +144,150 @@ export default function App() {
     return counter;
   }, [username, currentBankPrefix, historyVersion]);
 
+  // Compute unanswered (yet to be answered correctly) count for each bank
+  // 分母是每個字庫總數, 分子是受測者還未答對的題數
+  const bankUnansweredCounts = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
+    const cleanUser = username.trim().toLowerCase();
+    const history = getQuizHistory();
+
+    cloudBanks.forEach((bank) => {
+      const { fileName, totalWords } = bank;
+      if (!totalWords || totalWords <= 0) {
+        counts[fileName] = 0;
+        return;
+      }
+
+      // If no user is logged in, all questions are yet to be answered correctly
+      if (!cleanUser || !isLoggedIn) {
+        counts[fileName] = totalWords;
+        return;
+      }
+
+      // If this is currently active bank and user has tested words in current session
+      if (fileName === currentBankFileName && allWords.length > 0) {
+        const answeredCount = Object.keys(userProgress).length;
+        if (answeredCount > 0) {
+          let correctInSession = 0;
+          allWords.forEach((w) => {
+            if (userProgress[w.en] === 'correct') {
+              correctInSession++;
+            }
+          });
+          counts[fileName] = Math.max(0, totalWords - correctInSession);
+          return;
+        }
+      }
+
+      // Check quiz history for this user and bank
+      const filePrefix = getPrefixFromFileName(fileName);
+      const cleanFileName = fileName.replace(/\.json$/i, '').trim();
+
+      const userBankRecords = history.filter((r) => {
+        if (!r.name || r.name.trim().toLowerCase() !== cleanUser) return false;
+        const rPrefix = (r.bankPrefix || '').trim();
+        const cleanRPrefix = rPrefix.replace(/\.json$/i, '').trim();
+        return (
+          rPrefix === fileName ||
+          cleanRPrefix === cleanFileName ||
+          rPrefix === filePrefix ||
+          cleanRPrefix === filePrefix
+        );
+      });
+
+      if (userBankRecords.length > 0) {
+        // Always reflect the latest test result (userBankRecords[0] is newest)
+        const latestRecord = userBankRecords[0];
+        if (latestRecord.rate === '100%' || latestRecord.wrong === 0) {
+          counts[fileName] = 0;
+          return;
+        } else if (typeof latestRecord.wrong === 'number') {
+          counts[fileName] = Math.min(totalWords, Math.max(0, latestRecord.wrong));
+          return;
+        } else if (typeof latestRecord.correct === 'number') {
+          counts[fileName] = Math.min(totalWords, Math.max(0, totalWords - latestRecord.correct));
+          return;
+        }
+      }
+
+      // If user is logged in but has no quiz records for this bank
+      counts[fileName] = totalWords;
+    });
+
+    // Support current bank if not in cloudBanks list
+    if (currentBankFileName && counts[currentBankFileName] === undefined) {
+      const answeredCount = Object.keys(userProgress).length;
+      if (answeredCount > 0) {
+        let correctInSession = 0;
+        allWords.forEach((w) => {
+          if (userProgress[w.en] === 'correct') {
+            correctInSession++;
+          }
+        });
+        counts[currentBankFileName] = Math.max(0, totalWordsCount - correctInSession);
+      } else {
+        const filePrefix = getPrefixFromFileName(currentBankFileName);
+        const cleanFileName = currentBankFileName.replace(/\.json$/i, '').trim();
+        const userBankRecords = history.filter((r) => {
+          if (!r.name || r.name.trim().toLowerCase() !== cleanUser) return false;
+          const rPrefix = (r.bankPrefix || '').trim();
+          const cleanRPrefix = rPrefix.replace(/\.json$/i, '').trim();
+          return (
+            rPrefix === currentBankFileName ||
+            cleanRPrefix === cleanFileName ||
+            rPrefix === filePrefix ||
+            cleanRPrefix === filePrefix
+          );
+        });
+        if (userBankRecords.length > 0) {
+          const latestRecord = userBankRecords[0];
+          if (latestRecord.rate === '100%' || latestRecord.wrong === 0) {
+            counts[currentBankFileName] = 0;
+          } else if (typeof latestRecord.wrong === 'number') {
+            counts[currentBankFileName] = Math.min(totalWordsCount, Math.max(0, latestRecord.wrong));
+          } else {
+            counts[currentBankFileName] = totalWordsCount;
+          }
+        } else {
+          counts[currentBankFileName] = totalWordsCount;
+        }
+      }
+    }
+
+    return counts;
+  }, [
+    cloudBanks,
+    username,
+    isLoggedIn,
+    currentBankFileName,
+    allWords,
+    userProgress,
+    totalWordsCount,
+    historyVersion,
+  ]);
+
+  // Global user vocabulary stats: 不熟字/總題數 | 熟悉字
+  const globalUserStats = useMemo(() => {
+    let totalWordsCount = 0;
+    cloudBanks.forEach((b) => {
+      totalWordsCount += b.totalWords || 0;
+    });
+    if (totalWordsCount === 0) totalWordsCount = 3236;
+
+    let unfamiliarCount = 0;
+    cloudBanks.forEach((b) => {
+      unfamiliarCount += bankUnansweredCounts[b.fileName] ?? (b.totalWords || 0);
+    });
+
+    const familiarCount = Math.max(0, totalWordsCount - unfamiliarCount);
+
+    return {
+      unfamiliarCount,
+      totalWordsCount,
+      familiarCount,
+    };
+  }, [cloudBanks, bankUnansweredCounts]);
+
   // Refresh history users list
   const refreshHistoryUsers = useCallback(() => {
     const history = getQuizHistory();
@@ -151,9 +300,25 @@ export default function App() {
     setHistoryUsers(Array.from(unique));
   }, []);
 
-  // Fetch Cloud Banks on Mount
+  // Fetch Cloud Banks & Firebase Quiz History on Mount
   useEffect(() => {
     refreshHistoryUsers();
+
+    // Sync from Firebase
+    async function syncFromFirebase() {
+      try {
+        const remoteRecords = await fetchQuizHistoryFromFirebase();
+        if (remoteRecords && remoteRecords.length > 0) {
+          const merged = mergeHistoryRecords(remoteRecords);
+          saveQuizHistory(merged);
+          refreshHistoryUsers();
+          setHistoryVersion((v) => v + 1);
+        }
+      } catch (err) {
+        console.warn('Firebase initial sync skipped:', err);
+      }
+    }
+    syncFromFirebase();
 
     // Check stored bank
     const stored = getStoredWordBank();
@@ -185,13 +350,45 @@ export default function App() {
 
         if (jsonFiles.length > 0) {
           jsonFiles.sort((a, b) => a.localeCompare(b, 'zh-TW', { numeric: true }));
-          const mapping: CloudWordBankIndex = {
-            '01_精選示範字庫 (Starter Pack).json': 'local_starter',
-          };
+          const items: CloudBankItem[] = [];
+
           jsonFiles.forEach((f) => {
-            mapping[f] = files[f].raw_url;
+            const fileObj = files[f];
+            let totalWords = 0;
+            let categoryTitle = '';
+            const contentStr = fileObj.content || '';
+
+            if (contentStr) {
+              try {
+                const parsed = JSON.parse(contentStr);
+                categoryTitle = parsed[0]?.category || '';
+                totalWords = parsed.reduce(
+                  (sum: number, c: any) => sum + (c.list?.length || 0),
+                  0
+                );
+              } catch {
+                // ignore parse error
+              }
+            }
+
+            if (!totalWords) {
+              const staticMatch = OFFICIAL_CLOUD_BANKS_META.find((m) => m.fileName === f);
+              if (staticMatch) {
+                totalWords = staticMatch.totalWords;
+                categoryTitle = staticMatch.categoryTitle;
+              }
+            }
+
+            items.push({
+              fileName: f,
+              rawUrl: fileObj.raw_url,
+              totalWords,
+              categoryTitle,
+              content: contentStr,
+            });
           });
-          setCloudBanks(mapping);
+
+          setCloudBanks(items);
         }
       } catch (err) {
         console.warn('Gist fetch fallback to local:', err);
@@ -347,6 +544,8 @@ export default function App() {
 
   // Handle Cloud Word Bank Selection
   const handleSelectCloudBank = async (fileName: string) => {
+    if (!fileName) return;
+
     if (fileName === '01_精選示範字庫 (Starter Pack).json') {
       setWordCategories(DEFAULT_STARTER_BANK);
       setCurrentBankFileName(fileName);
@@ -358,12 +557,33 @@ export default function App() {
       return;
     }
 
-    const url = cloudBanks[fileName];
-    if (!url) return;
+    const targetBank = cloudBanks.find((b) => b.fileName === fileName);
+    if (!targetBank) return;
+
+    // Fast path: if content was bundled in Gist response
+    if (targetBank.content) {
+      try {
+        const data: WordCategory[] = JSON.parse(targetBank.content);
+        setWordCategories(data);
+        setCurrentBankFileName(fileName);
+        storeWordBank(data, fileName);
+        setUserProgress({});
+        setFlippedCards({});
+        clearUserProgressCache();
+
+        if (isLoggedIn && username.trim()) {
+          calculateWeaknessScores(username.trim());
+        }
+        showToast(`🎉 題庫 [${fileName}] 載入成功！`, 'success');
+        return;
+      } catch (err) {
+        console.warn('Cached bank parse error, fetching from network:', err);
+      }
+    }
 
     setIsLoadingCloud(true);
     try {
-      const response = await fetch(url);
+      const response = await fetch(targetBank.rawUrl);
       if (!response.ok) throw new Error('題庫下載失敗');
       const data: WordCategory[] = await response.json();
 
@@ -394,6 +614,26 @@ export default function App() {
         if (!Array.isArray(parsed)) {
           throw new Error('JSON 格式必須為單字分類陣列');
         }
+        const totalWords = parsed.reduce(
+          (sum: number, cat: any) => sum + (cat.list?.length || 0),
+          0
+        );
+        const categoryTitle = parsed[0]?.category || '本地自訂單字庫';
+
+        setCloudBanks((prev) => {
+          const filtered = prev.filter((b) => b.fileName !== file.name);
+          return [
+            {
+              fileName: file.name,
+              totalWords,
+              categoryTitle,
+              rawUrl: '',
+              content: JSON.stringify(parsed),
+            },
+            ...filtered,
+          ];
+        });
+
         setWordCategories(parsed);
         setCurrentBankFileName(file.name);
         storeWordBank(parsed, file.name);
@@ -420,8 +660,8 @@ export default function App() {
       )
     ) {
       setWordCategories(DEFAULT_STARTER_BANK);
-      setCurrentBankFileName('01_精選示範字庫 (Starter Pack).json');
-      storeWordBank(DEFAULT_STARTER_BANK, '01_精選示範字庫 (Starter Pack).json');
+      setCurrentBankFileName('');
+      storeWordBank(DEFAULT_STARTER_BANK, '');
       setUserProgress({});
       setFlippedCards({});
       clearUserProgressCache();
@@ -571,6 +811,11 @@ export default function App() {
       refreshHistoryUsers();
       setHistoryVersion((v) => v + 1);
 
+      // Sync the new record to Firebase asynchronously
+      syncQuizRecordToFirebase(newRecord).catch((e) => {
+        console.warn('Firebase background sync error:', e);
+      });
+
       // A: 在按 存查歷史紀錄 or Ctrl+S 儲存時，立即同步更動篩選歷史不熟悉度門檻
       if (currentName) {
         calculateWeaknessScores(currentName, false);
@@ -657,7 +902,7 @@ export default function App() {
 
       setUserProgress((prev) => {
         const next = { ...prev, [wordEn]: newStatus };
-        // Cache to storage
+        // Cache to storage for crash recovery
         if (username.trim() && currentBankFileName) {
           saveUserProgressCache({
             username: username.trim(),
@@ -668,12 +913,10 @@ export default function App() {
         return next;
       });
 
-      // Auto-save result quietly
-      setTimeout(() => {
-        saveCurrentResult(false);
-      }, 100);
+      // 不在作答當下立即存查算分，避免特訓卡片即時消失；
+      // 一律保留所有卡片，直到使用者按下 Ctrl+S (或點擊存查歷史紀錄) 時再統一結算對錯。
     },
-    [isLoggedIn, username, currentBankFileName, saveCurrentResult, showToast]
+    [isLoggedIn, username, currentBankFileName, showToast]
   );
 
   // Reset all questions to re-exam
@@ -1124,6 +1367,11 @@ export default function App() {
         refreshHistoryUsers();
         setHistoryVersion((v) => v + 1);
 
+        // Sync imported records to Firebase in background
+        syncAllRecordsToFirebase(merged).catch((e) => {
+          console.warn('Firebase batch sync error:', e);
+        });
+
         if (isLoggedIn && username.trim()) {
           calculateWeaknessScores(username.trim());
         }
@@ -1185,7 +1433,10 @@ export default function App() {
 
       {/* Main Content Area */}
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 flex-1">
-        <Header onOpenKeyboardShortcuts={() => setIsShortcutsOpen(true)} />
+        <Header
+          onOpenKeyboardShortcuts={() => setIsShortcutsOpen(true)}
+          userStats={globalUserStats}
+        />
 
         {/* Control Panels Stack */}
         <div className="space-y-3 mb-6 max-w-6xl mx-auto">
@@ -1204,6 +1455,7 @@ export default function App() {
 
           <WordBankPanel
             cloudBanks={cloudBanks}
+            unansweredCounts={bankUnansweredCounts}
             currentBankFileName={currentBankFileName}
             isLoadingCloud={isLoadingCloud}
             onSelectBank={handleSelectCloudBank}
