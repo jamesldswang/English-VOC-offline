@@ -43,7 +43,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenKeyboardShortcuts, userSta
 
       <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold uppercase tracking-wider mb-2 shadow-xs">
         <Sparkles className="w-3.5 h-3.5" />
-        V8.38 弱點特訓卡片留存 & Ctrl+S 結算對錯版 • 通用字卡平台
+        V8.41 本地字庫記錄管理與即時覆蓋取代版 • 通用字卡平台
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3">

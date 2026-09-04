@@ -28,6 +28,7 @@ export interface QuizRecord {
   wrong: number;
   rate: string;
   wrongWords: WrongWord[];
+  correctWords?: string[];
   bankPrefix: string;
   isReviewRound: boolean;
   reviewSessionId?: string;
@@ -55,6 +56,16 @@ export interface CloudBankItem {
   totalWords: number;
   categoryTitle: string;
   content?: string;
+  isLocalCustom?: boolean;
+  uploadedAt?: number;
+}
+
+export interface StoredCustomBank {
+  fileName: string;
+  totalWords: number;
+  categoryTitle: string;
+  content: string;
+  uploadedAt: number;
 }
 
 export interface WrongWordCountMap {

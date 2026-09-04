@@ -24,6 +24,9 @@ import {
   clearUserProgressCache,
   getStoredWordBank,
   storeWordBank,
+  getCustomUploadedBanks,
+  saveCustomUploadedBank,
+  removeCustomUploadedBank,
   mergeHistoryRecords,
   downloadJSONFile,
 } from './utils/storage';
@@ -43,6 +46,7 @@ import { WordCard } from './components/WordCard';
 import { HistoryModal } from './components/HistoryModal';
 import { ChangeLogModal } from './components/ChangeLogModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { LocalBankModal } from './components/LocalBankModal';
 
 export default function App() {
   // User Profile: Always start EMPTY on initial entry
@@ -53,7 +57,23 @@ export default function App() {
   // Word Bank State
   const [wordCategories, setWordCategories] = useState<WordCategory[]>(DEFAULT_STARTER_BANK);
   const [currentBankFileName, setCurrentBankFileName] = useState<string>('');
-  const [cloudBanks, setCloudBanks] = useState<CloudBankItem[]>(OFFICIAL_CLOUD_BANKS_META);
+  const [cloudBanks, setCloudBanks] = useState<CloudBankItem[]>(() => {
+    try {
+      const savedCustom = getCustomUploadedBanks();
+      const customItems: CloudBankItem[] = savedCustom.map((b) => ({
+        fileName: b.fileName,
+        totalWords: b.totalWords,
+        categoryTitle: b.categoryTitle,
+        rawUrl: '',
+        content: b.content,
+        isLocalCustom: true,
+        uploadedAt: b.uploadedAt,
+      }));
+      return [...customItems, ...OFFICIAL_CLOUD_BANKS_META];
+    } catch {
+      return OFFICIAL_CLOUD_BANKS_META;
+    }
+  });
   const [isLoadingCloud, setIsLoadingCloud] = useState<boolean>(false);
 
   // Progress & Review State
@@ -81,6 +101,7 @@ export default function App() {
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isChangelogOpen, setIsChangelogOpen] = useState<boolean>(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
+  const [isLocalBankModalOpen, setIsLocalBankModalOpen] = useState<boolean>(false);
 
   // Toast Notification
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -110,14 +131,22 @@ export default function App() {
     const cleanUser = username.trim().toLowerCase();
     if (!cleanUser || !currentBankPrefix) return counter;
 
+    const currentBankWordsSet = new Set(allWords.map((w) => w.en.trim().toLowerCase()));
     const history = getQuizHistory();
+
     history.forEach((record) => {
-      const recordPrefix = record.bankPrefix || '';
+      const recordPrefix = (record.bankPrefix || '').trim();
+      const cleanRecordPrefix = recordPrefix.replace(/\.json$/i, '');
+      const cleanCurrentPrefix = currentBankPrefix.replace(/\.json$/i, '');
+
+      // Record matches if prefix matches OR if it tested words belonging to the current bank
       const prefixMatch =
         !recordPrefix ||
         recordPrefix === currentBankPrefix ||
         recordPrefix === 'ALL' ||
-        recordPrefix.replace(/\.json$/i, '') === currentBankPrefix.replace(/\.json$/i, '');
+        cleanRecordPrefix === cleanCurrentPrefix ||
+        (record.wrongWords &&
+          record.wrongWords.some((ww) => currentBankWordsSet.has(ww.en.trim().toLowerCase())));
 
       if (
         record.name?.trim().toLowerCase() === cleanUser &&
@@ -142,10 +171,129 @@ export default function App() {
       }
     });
     return counter;
-  }, [username, currentBankPrefix, historyVersion]);
+  }, [username, currentBankPrefix, historyVersion, allWords]);
+
+  // 建立全題庫單字快取對應表 (包含雲端教材市集與本地上傳題庫)
+  const bankWordsMap = useMemo<Record<string, WordItem[]>>(() => {
+    const map: Record<string, WordItem[]> = {};
+    cloudBanks.forEach((b) => {
+      if (b.content) {
+        try {
+          const parsed = JSON.parse(b.content);
+          if (Array.isArray(parsed)) {
+            const list: WordItem[] = [];
+            parsed.forEach((cat: any) => {
+              if (cat && Array.isArray(cat.list)) {
+                list.push(...cat.list);
+              }
+            });
+            if (list.length > 0) {
+              map[b.fileName] = list;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    if (currentBankFileName && allWords.length > 0) {
+      if (!map[currentBankFileName] || map[currentBankFileName].length === 0) {
+        map[currentBankFileName] = allWords;
+      }
+    }
+
+    return map;
+  }, [cloudBanks, currentBankFileName, allWords]);
+
+  // 受測者所有單字掌握狀態 (含本機上傳測驗、歷史歷程與當前實體作答進度)
+  const userWordMastery = useMemo<Record<string, boolean>>(() => {
+    const mastery: Record<string, boolean> = {};
+    const cleanUser = username.trim().toLowerCase();
+    if (!cleanUser || !isLoggedIn) return mastery;
+
+    const history = getQuizHistory();
+
+    // 1. 歷程紀錄由舊到新遍歷 (index 0 為最新，故 reverse 後先處理舊的，後測成果覆蓋前測)
+    const userRecords = history
+      .filter((r) => r.name && r.name.trim().toLowerCase() === cleanUser)
+      .slice()
+      .reverse();
+
+    userRecords.forEach((record) => {
+      // 錯字標示為未掌握
+      if (record.wrongWords && Array.isArray(record.wrongWords)) {
+        record.wrongWords.forEach((ww) => {
+          if (ww && ww.en) {
+            const raw = ww.en.trim().toLowerCase();
+            mastery[raw] = false;
+            const slashPart = raw.split('/')[0].trim();
+            if (slashPart) mastery[slashPart] = false;
+          }
+        });
+      }
+
+      // 正確字標示為已掌握 (含本地上傳測試答對字)
+      if (record.correctWords && Array.isArray(record.correctWords)) {
+        record.correctWords.forEach((cw) => {
+          if (cw) {
+            const raw = cw.trim().toLowerCase();
+            mastery[raw] = true;
+            const slashPart = raw.split('/')[0].trim();
+            if (slashPart) mastery[slashPart] = true;
+          }
+        });
+      } else {
+        // 舊版紀錄相容：若是 100% 全對或 wrong === 0，該題庫所有單字皆掌握
+        const prefix = (record.bankPrefix || '').trim();
+        const matchingBank = cloudBanks.find(
+          (b) =>
+            b.fileName === prefix ||
+            b.fileName.replace(/\.json$/i, '') === prefix ||
+            getPrefixFromFileName(b.fileName) === prefix
+        );
+        const bankWords = matchingBank ? bankWordsMap[matchingBank.fileName] : undefined;
+        if (bankWords && bankWords.length > 0) {
+          const wrongSet = new Set(
+            (record.wrongWords || []).map((w) => w.en.trim().toLowerCase())
+          );
+          bankWords.forEach((item) => {
+            const k = item.en.trim().toLowerCase();
+            if (!wrongSet.has(k)) {
+              if (record.rate === '100%' || record.wrong === 0) {
+                mastery[k] = true;
+                const slashPart = k.split('/')[0].trim();
+                if (slashPart) mastery[slashPart] = true;
+              } else if (record.tested && record.tested >= (record.total || 0)) {
+                mastery[k] = true;
+                const slashPart = k.split('/')[0].trim();
+                if (slashPart) mastery[slashPart] = true;
+              }
+            }
+          });
+        }
+      }
+    });
+
+    // 2. 疊加當前實體作答狀態 (當前作答為最高即時優先級)
+    Object.entries(userProgress).forEach(([wordEn, status]) => {
+      const raw = wordEn.trim().toLowerCase();
+      const slashPart = raw.split('/')[0].trim();
+      if (status === 'correct') {
+        mastery[raw] = true;
+        if (slashPart) mastery[slashPart] = true;
+      } else if (status === 'wrong') {
+        mastery[raw] = false;
+        if (slashPart) mastery[slashPart] = false;
+      }
+    });
+
+    return mastery;
+  }, [username, isLoggedIn, userProgress, historyVersion, cloudBanks, bankWordsMap]);
 
   // Compute unanswered (yet to be answered correctly) count for each bank
   // 分母是每個字庫總數, 分子是受測者還未答對的題數
+  // 支援手動上傳本地 JSON：若考的單字與智慧雲端教材市集相同且答對，即自動併入智慧雲端教材市集統計！
   const bankUnansweredCounts = useMemo<Record<string, number>>(() => {
     const counts: Record<string, number> = {};
     const cleanUser = username.trim().toLowerCase();
@@ -164,22 +312,22 @@ export default function App() {
         return;
       }
 
-      // If this is currently active bank and user has tested words in current session
-      if (fileName === currentBankFileName && allWords.length > 0) {
-        const answeredCount = Object.keys(userProgress).length;
-        if (answeredCount > 0) {
-          let correctInSession = 0;
-          allWords.forEach((w) => {
-            if (userProgress[w.en] === 'correct') {
-              correctInSession++;
-            }
-          });
-          counts[fileName] = Math.max(0, totalWords - correctInSession);
-          return;
-        }
+      // 檢查該題庫是否有單字列表 (無論是雲端題庫還是手動上傳題庫)
+      const words = bankWordsMap[fileName];
+      if (words && words.length > 0) {
+        let correctCount = 0;
+        words.forEach((w) => {
+          const raw = w.en.trim().toLowerCase();
+          const slashPart = raw.split('/')[0].trim();
+          if (userWordMastery[raw] || (slashPart && userWordMastery[slashPart])) {
+            correctCount++;
+          }
+        });
+        counts[fileName] = Math.max(0, totalWords - correctCount);
+        return;
       }
 
-      // Check quiz history for this user and bank
+      // 若尚未解析出單字清單 (例如網路載入前期)，以歷程紀錄作為備用回退
       const filePrefix = getPrefixFromFileName(fileName);
       const cleanFileName = fileName.replace(/\.json$/i, '').trim();
 
@@ -216,68 +364,53 @@ export default function App() {
 
     // Support current bank if not in cloudBanks list
     if (currentBankFileName && counts[currentBankFileName] === undefined) {
-      const answeredCount = Object.keys(userProgress).length;
-      if (answeredCount > 0) {
-        let correctInSession = 0;
-        allWords.forEach((w) => {
-          if (userProgress[w.en] === 'correct') {
-            correctInSession++;
+      const words = bankWordsMap[currentBankFileName] || allWords;
+      if (words && words.length > 0) {
+        let correctCount = 0;
+        words.forEach((w) => {
+          const raw = w.en.trim().toLowerCase();
+          const slashPart = raw.split('/')[0].trim();
+          if (userWordMastery[raw] || (slashPart && userWordMastery[slashPart])) {
+            correctCount++;
           }
         });
-        counts[currentBankFileName] = Math.max(0, totalWordsCount - correctInSession);
+        counts[currentBankFileName] = Math.max(0, totalWordsCount - correctCount);
       } else {
-        const filePrefix = getPrefixFromFileName(currentBankFileName);
-        const cleanFileName = currentBankFileName.replace(/\.json$/i, '').trim();
-        const userBankRecords = history.filter((r) => {
-          if (!r.name || r.name.trim().toLowerCase() !== cleanUser) return false;
-          const rPrefix = (r.bankPrefix || '').trim();
-          const cleanRPrefix = rPrefix.replace(/\.json$/i, '').trim();
-          return (
-            rPrefix === currentBankFileName ||
-            cleanRPrefix === cleanFileName ||
-            rPrefix === filePrefix ||
-            cleanRPrefix === filePrefix
-          );
-        });
-        if (userBankRecords.length > 0) {
-          const latestRecord = userBankRecords[0];
-          if (latestRecord.rate === '100%' || latestRecord.wrong === 0) {
-            counts[currentBankFileName] = 0;
-          } else if (typeof latestRecord.wrong === 'number') {
-            counts[currentBankFileName] = Math.min(totalWordsCount, Math.max(0, latestRecord.wrong));
-          } else {
-            counts[currentBankFileName] = totalWordsCount;
-          }
-        } else {
-          counts[currentBankFileName] = totalWordsCount;
-        }
+        counts[currentBankFileName] = totalWordsCount;
       }
     }
 
     return counts;
   }, [
     cloudBanks,
+    bankWordsMap,
+    userWordMastery,
     username,
     isLoggedIn,
     currentBankFileName,
     allWords,
-    userProgress,
     totalWordsCount,
     historyVersion,
   ]);
 
   // Global user vocabulary stats: 不熟字/總題數 | 熟悉字
+  // 精準統計智慧雲端教材市集官方全庫單字掌握情況
   const globalUserStats = useMemo(() => {
-    let totalWordsCount = 0;
-    cloudBanks.forEach((b) => {
-      totalWordsCount += b.totalWords || 0;
-    });
-    if (totalWordsCount === 0) totalWordsCount = 3236;
+    // 找出官方題庫清單 (排除本機臨時上傳的額外獨立題庫，確保全庫總數對齊官方 3,236 題)
+    const officialBanks = cloudBanks.filter((b) =>
+      OFFICIAL_CLOUD_BANKS_META.some((m) => m.fileName === b.fileName)
+    );
+    const targetBanks = officialBanks.length > 0 ? officialBanks : cloudBanks;
 
+    let totalWordsCount = 0;
     let unfamiliarCount = 0;
-    cloudBanks.forEach((b) => {
+
+    targetBanks.forEach((b) => {
+      totalWordsCount += b.totalWords || 0;
       unfamiliarCount += bankUnansweredCounts[b.fileName] ?? (b.totalWords || 0);
     });
+
+    if (totalWordsCount === 0) totalWordsCount = 3236;
 
     const familiarCount = Math.max(0, totalWordsCount - unfamiliarCount);
 
@@ -324,7 +457,29 @@ export default function App() {
     const stored = getStoredWordBank();
     if (stored.data && stored.data.length > 0) {
       setWordCategories(stored.data);
-      setCurrentBankFileName(stored.fileName || '本地自訂單字庫.json');
+      const storedFileName = stored.fileName || '本地自訂單字庫.json';
+      setCurrentBankFileName(storedFileName);
+
+      const totalWords = stored.data.reduce(
+        (sum: number, cat: any) => sum + (cat.list?.length || 0),
+        0
+      );
+      const categoryTitle = stored.data[0]?.category || '本地自訂單字庫';
+      setCloudBanks((prev) => {
+        if (!prev.some((b) => b.fileName === storedFileName)) {
+          return [
+            {
+              fileName: storedFileName,
+              totalWords,
+              categoryTitle,
+              rawUrl: '',
+              content: JSON.stringify(stored.data),
+            },
+            ...prev,
+          ];
+        }
+        return prev;
+      });
     }
 
     // Always purge any cached username in browser storage on startup
@@ -388,7 +543,12 @@ export default function App() {
             });
           });
 
-          setCloudBanks(items);
+          setCloudBanks((prev) => {
+            const customBanks = prev.filter(
+              (p) => p.isLocalCustom || !items.some((i) => i.fileName === p.fileName)
+            );
+            return [...customBanks, ...items];
+          });
         }
       } catch (err) {
         console.warn('Gist fetch fallback to local:', err);
@@ -574,7 +734,12 @@ export default function App() {
         if (isLoggedIn && username.trim()) {
           calculateWeaknessScores(username.trim());
         }
-        showToast(`🎉 題庫 [${fileName}] 載入成功！`, 'success');
+        showToast(
+          targetBank.isLocalCustom
+            ? `💾 本地儲存題庫 [${fileName}] 載入成功！`
+            : `🎉 題庫 [${fileName}] 載入成功！`,
+          'success'
+        );
         return;
       } catch (err) {
         console.warn('Cached bank parse error, fetching from network:', err);
@@ -612,14 +777,40 @@ export default function App() {
       try {
         const parsed = JSON.parse(e.target?.result as string);
         if (!Array.isArray(parsed)) {
-          throw new Error('JSON 格式必須為單字分類陣列');
+          throw new Error('JSON 格式必須為陣列');
         }
-        const totalWords = parsed.reduce(
+
+        let categories: WordCategory[] = [];
+        if (parsed.length > 0 && parsed[0].list && Array.isArray(parsed[0].list)) {
+          categories = parsed;
+        } else if (parsed.length > 0 && (parsed[0].en || parsed[0].ch)) {
+          categories = [
+            {
+              id: 'local-cat-1',
+              category: file.name.replace(/\.json$/i, '') || '本地上傳單字庫',
+              list: parsed,
+            },
+          ];
+        } else {
+          categories = parsed;
+        }
+
+        const totalWords = categories.reduce(
           (sum: number, cat: any) => sum + (cat.list?.length || 0),
           0
         );
-        const categoryTitle = parsed[0]?.category || '本地自訂單字庫';
+        const categoryTitle = categories[0]?.category || '本地自訂單字庫';
 
+        // 1. 永久儲存至瀏覽器 LocalStorage，下次開啟免再上傳
+        saveCustomUploadedBank({
+          fileName: file.name,
+          totalWords,
+          categoryTitle,
+          content: JSON.stringify(categories),
+          uploadedAt: Date.now(),
+        });
+
+        // 2. 加入/更新至題庫市集清單
         setCloudBanks((prev) => {
           const filtered = prev.filter((b) => b.fileName !== file.name);
           return [
@@ -628,15 +819,17 @@ export default function App() {
               totalWords,
               categoryTitle,
               rawUrl: '',
-              content: JSON.stringify(parsed),
+              content: JSON.stringify(categories),
+              isLocalCustom: true,
+              uploadedAt: Date.now(),
             },
             ...filtered,
           ];
         });
 
-        setWordCategories(parsed);
+        setWordCategories(categories);
         setCurrentBankFileName(file.name);
-        storeWordBank(parsed, file.name);
+        storeWordBank(categories, file.name);
         setUserProgress({});
         setFlippedCards({});
         clearUserProgressCache();
@@ -644,9 +837,115 @@ export default function App() {
         if (isLoggedIn && username.trim()) {
           calculateWeaknessScores(username.trim());
         }
-        showToast(`🎉 本地字庫 [${file.name}] 載入成功！`, 'success');
+        showToast(
+          `💾 本地題庫 [${file.name}] 已成功儲存於瀏覽器 (${totalWords} 題)！下次開啟無需再上傳，可隨時於題庫選單自由切換！`,
+          'success'
+        );
       } catch (err) {
         showToast(`❌ 檔案格式錯誤: ${(err as Error).message}`, 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // 刪除已儲存於瀏覽器的本地題庫
+  const handleDeleteLocalBank = (fileName: string) => {
+    if (!fileName) return;
+    if (
+      window.confirm(
+        `⚠️ 確定要從瀏覽器永久刪除本機題庫 [${fileName}] 嗎？\n刪除後若需使用須重新上傳。`
+      )
+    ) {
+      removeCustomUploadedBank(fileName);
+      setCloudBanks((prev) => prev.filter((b) => b.fileName !== fileName));
+
+      if (currentBankFileName === fileName) {
+        setWordCategories(DEFAULT_STARTER_BANK);
+        setCurrentBankFileName('');
+        storeWordBank(DEFAULT_STARTER_BANK, '');
+        setUserProgress({});
+        setFlippedCards({});
+        clearUserProgressCache();
+      }
+      showToast(`🗑️ 已自瀏覽器移除本機題庫 [${fileName}]！`, 'info');
+    }
+  };
+
+  // 覆蓋取代已儲存於瀏覽器的本地題庫
+  const handleReplaceLocalBank = (targetFileName: string, file: File) => {
+    if (!targetFileName || !file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const parsed = JSON.parse(content);
+
+        let categories: WordCategory[] = [];
+        if (parsed.length > 0 && parsed[0].list && Array.isArray(parsed[0].list)) {
+          categories = parsed;
+        } else if (parsed.length > 0 && (parsed[0].en || parsed[0].ch)) {
+          categories = [
+            {
+              id: 'local-cat-1',
+              category:
+                file.name.replace(/\.json$/i, '') ||
+                targetFileName.replace(/\.json$/i, '') ||
+                '本地上傳單字庫',
+              list: parsed,
+            },
+          ];
+        } else {
+          categories = parsed;
+        }
+
+        const totalWords = categories.reduce(
+          (sum: number, cat: any) => sum + (cat.list?.length || 0),
+          0
+        );
+        const categoryTitle = categories[0]?.category || '本地自訂單字庫';
+
+        // 儲存更新至 LocalStorage
+        saveCustomUploadedBank({
+          fileName: targetFileName,
+          totalWords,
+          categoryTitle,
+          content: JSON.stringify(categories),
+          uploadedAt: Date.now(),
+        });
+
+        // 更新 state 中對應的 bank
+        setCloudBanks((prev) =>
+          prev.map((b) =>
+            b.fileName === targetFileName
+              ? {
+                  ...b,
+                  totalWords,
+                  categoryTitle,
+                  content: JSON.stringify(categories),
+                  uploadedAt: Date.now(),
+                }
+              : b
+          )
+        );
+
+        // 若目前正在測驗此題庫，即時同步更新題卡與狀態
+        if (currentBankFileName === targetFileName) {
+          setWordCategories(categories);
+          storeWordBank(categories, targetFileName);
+          setUserProgress({});
+          setFlippedCards({});
+          clearUserProgressCache();
+          if (isLoggedIn && username.trim()) {
+            calculateWeaknessScores(username.trim());
+          }
+        }
+
+        showToast(
+          `🔄 本地題庫 [${targetFileName}] 已成功覆蓋取代 (${totalWords} 題)！`,
+          'success'
+        );
+      } catch (err) {
+        showToast(`❌ 覆蓋更新失敗: ${(err as Error).message}`, 'error');
       }
     };
     reader.readAsText(file);
@@ -715,6 +1014,7 @@ export default function App() {
       const targetTotal = totalWordsCount || allWords.length;
 
       let answeredCount = 0;
+      const correctWordsList: string[] = [];
       const wrongWordsList: { en: string; ch: string }[] = [];
 
       if (isTrainingMode) {
@@ -723,6 +1023,7 @@ export default function App() {
           const status = userProgress[word.en];
           if (status === 'correct') {
             answeredCount++;
+            correctWordsList.push(word.en);
           } else if (status === 'wrong') {
             answeredCount++;
             wrongWordsList.push({ en: word.en, ch: word.ch });
@@ -736,6 +1037,7 @@ export default function App() {
           const status = userProgress[word.en];
           if (status === 'correct') {
             answeredCount++;
+            correctWordsList.push(word.en);
           } else if (status === 'wrong') {
             answeredCount++;
             wrongWordsList.push({ en: word.en, ch: word.ch });
@@ -785,6 +1087,7 @@ export default function App() {
         wrong,
         rate: finalRateString,
         wrongWords: wrongWordsList,
+        correctWords: correctWordsList,
         bankPrefix: currentBankPrefix,
         isReviewRound: isTrainingMode,
         reviewSessionId: currentReviewSessionId,
@@ -1461,6 +1764,8 @@ export default function App() {
             onSelectBank={handleSelectCloudBank}
             onUploadLocalBank={handleUploadLocalBank}
             onClearBank={handleClearBank}
+            onDeleteLocalBank={handleDeleteLocalBank}
+            onOpenLocalBankModal={() => setIsLocalBankModalOpen(true)}
           />
 
           <ReviewPanel
@@ -1619,6 +1924,18 @@ export default function App() {
       <KeyboardShortcutsModal
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      <LocalBankModal
+        isOpen={isLocalBankModalOpen}
+        onClose={() => setIsLocalBankModalOpen(false)}
+        localBanks={cloudBanks.filter((b) => b.isLocalCustom)}
+        currentBankFileName={currentBankFileName}
+        unansweredCounts={bankUnansweredCounts}
+        onSelectBank={handleSelectCloudBank}
+        onUploadNewBank={handleUploadLocalBank}
+        onReplaceBank={handleReplaceLocalBank}
+        onDeleteBank={handleDeleteLocalBank}
       />
     </div>
   );

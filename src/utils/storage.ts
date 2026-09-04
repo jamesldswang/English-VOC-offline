@@ -1,4 +1,4 @@
-import { QuizRecord, UserProgressCache, WordCategory } from '../types';
+import { QuizRecord, StoredCustomBank, UserProgressCache, WordCategory } from '../types';
 
 export const GIST_ID = 'bc604e8856c3cc383aaab925f2f7c222';
 export const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   BANK_FILE_NAME: 'fhl_bank_file_name',
   USER_PROGRESS_CACHE: 'fhl_user_progress_cache',
   USERNAME: 'fhl_username',
+  CUSTOM_UPLOADED_BANKS: 'fhl_custom_uploaded_banks',
 };
 
 /**
@@ -107,6 +108,62 @@ export function storeWordBank(data: WordCategory[], fileName: string): void {
     localStorage.setItem(STORAGE_KEYS.BANK_FILE_NAME, fileName);
   } catch (err) {
     console.error('Failed to store word bank:', err);
+  }
+}
+
+/**
+ * Gets all custom uploaded word banks stored in LocalStorage
+ */
+export function getCustomUploadedBanks(): StoredCustomBank[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.CUSTOM_UPLOADED_BANKS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Failed to read custom uploaded banks:', err);
+    return [];
+  }
+}
+
+/**
+ * Saves or updates a custom uploaded word bank in LocalStorage
+ */
+export function saveCustomUploadedBank(bank: StoredCustomBank): void {
+  try {
+    const list = getCustomUploadedBanks();
+    const index = list.findIndex((b) => b.fileName === bank.fileName);
+    if (index >= 0) {
+      list[index] = bank;
+    } else {
+      list.unshift(bank);
+    }
+    localStorage.setItem(STORAGE_KEYS.CUSTOM_UPLOADED_BANKS, JSON.stringify(list));
+  } catch (err) {
+    console.error('Failed to save custom uploaded bank:', err);
+  }
+}
+
+/**
+ * Removes a custom uploaded word bank from LocalStorage
+ */
+export function removeCustomUploadedBank(fileName: string): void {
+  try {
+    const list = getCustomUploadedBanks().filter((b) => b.fileName !== fileName);
+    localStorage.setItem(STORAGE_KEYS.CUSTOM_UPLOADED_BANKS, JSON.stringify(list));
+  } catch (err) {
+    console.error('Failed to remove custom uploaded bank:', err);
+  }
+}
+
+/**
+ * Clears all custom uploaded banks from LocalStorage
+ */
+export function clearCustomUploadedBanks(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.CUSTOM_UPLOADED_BANKS);
+  } catch (err) {
+    console.error('Failed to clear custom uploaded banks:', err);
   }
 }
 

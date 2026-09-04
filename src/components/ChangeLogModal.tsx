@@ -33,9 +33,45 @@ export const ChangeLogModal: React.FC<ChangeLogModalProps> = ({ isOpen, onClose 
           <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-300">
             <div className="flex items-center gap-1.5 font-bold text-emerald-900 text-sm mb-1.5">
               <GitCommit className="w-4 h-4 text-emerald-600" />
-              <span>🏆 V8.38 弱點特訓卡片留存 & Ctrl+S 結算對錯版 (最新)</span>
+              <span>🏆 V8.41 本地字庫記錄管理與即時覆蓋取代版 (最新)</span>
             </div>
             <ul className="list-disc list-inside space-y-1 text-slate-700">
+              <li>
+                <strong>點擊手動上傳彈出專屬「本地字庫管理看板」</strong>：點擊「📥 手動上傳本地 JSON」時開啟管理記錄面板，完整列出所有已上傳並儲存於瀏覽器的本地字庫。
+              </li>
+              <li>
+                <strong>個別字庫即時統計 (不熟字/總字數)</strong>：每張本地字庫紀錄卡片清晰顯示專屬的 <code>不熟字/總字數： [未熟]/[總數]</code>、掌握度進度條與百分比，掌握狀態一目了然。
+              </li>
+              <li>
+                <strong>支援一鍵覆蓋取代 (Replace) 與刪除管理</strong>：每個字庫皆提供 <code>🔄 覆蓋取代</code> 按鈕，可直接挑選新 JSON 檔案無縫更新該字庫單字內容與題數；亦支援一鍵刪除。
+              </li>
+              <li>
+                <strong>拖曳與點擊上傳新字庫</strong>：看板內建拖曳上傳與檔案挑選區，新上傳字庫自動永久儲存於瀏覽器並即時載入。
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
+              <GitCommit className="w-3.5 h-3.5 text-slate-500" />
+              <span>✨ V8.40 本地上傳題庫瀏覽器持久化保存版</span>
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-slate-600">
+              <li>
+                <strong>手動上傳本地 JSON 題庫永久保存於瀏覽器</strong>：手動上傳本地 JSON 題庫後，系統立即自動將其永久儲存於瀏覽器 LocalStorage（<code>fhl_custom_uploaded_banks</code>）。
+              </li>
+              <li>
+                <strong>題庫市集專屬分組與無縫切換</strong>：題庫下拉選單新增 <code>💾 本地上傳題庫</code> 專屬群組，標註 <code>📁 [本地儲存]</code>。
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
+              <GitCommit className="w-3.5 h-3.5 text-slate-500" />
+              <span>✨ V8.38 弱點特訓卡片留存 & Ctrl+S 結算對錯版</span>
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-slate-600">
               <li>
                 <strong>特訓卡片完整留存不消失</strong>：修正在特訓過程中每答對一題即觸發提早結算導致門檻推升、卡片瞬間消失的問題。現在無論拼字正確或標記答對，卡片皆安穩保留在畫面上並標註綠色勾勾，保持練習節奏流暢。
               </li>
